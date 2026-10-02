@@ -163,6 +163,7 @@ SCPGONode::SCPGONode(const rclcpp::NodeOptions &options)
 
     sc_manager_.setSCdistThres(sc_dist_thres_);
     sc_manager_.setMaximumRadius(sc_max_radius_);
+    sc_manager_.setLoopTimeGap(loop_time_gap_);
 
     // 降采样设置
     down_size_filter_scancontext_.setLeafSize(scancontext_filter_size_, scancontext_filter_size_, scancontext_filter_size_);
@@ -237,6 +238,8 @@ void SCPGONode::loadParams()
     sc_dist_thres_ = get_parameter("sc_dist_thres").get_parameter_value().get<double>();
     declare_parameter("sc_max_radius", 80.0); // 80 is recommended for outdoor, and lower (ex, 20, 40) values are recommended for indoor
     sc_max_radius_ = get_parameter("sc_max_radius").get_parameter_value().get<double>();
+    declare_parameter("loop_time_gap", 30.0); // a loop candidate keyframe must be >= this many seconds older than the query
+    loop_time_gap_ = get_parameter("loop_time_gap").get_parameter_value().get<double>();
     declare_parameter("scancontext_filter_size", 0.4);
     scancontext_filter_size_ = static_cast<float>(get_parameter("scancontext_filter_size").get_parameter_value().get<double>());
 
@@ -724,7 +727,7 @@ void SCPGONode::process_pg()
             keyframe_poses_updated_.push_back(pose_curr); // init
             keyframe_times_.push_back(time_laser_odometry_);
 
-            sc_manager_.makeAndSaveScancontextAndKeys(*thisKeyFrameDS);
+            sc_manager_.makeAndSaveScancontextAndKeys(*thisKeyFrameDS, time_laser_odometry_);
 
             mtx_kf_.unlock();
 
@@ -797,7 +800,12 @@ void SCPGONode::process_pg()
 
 void SCPGONode::performSCLoopClosure()
 {
-    if (int(keyframe_poses_.size()) < sc_manager_.NUM_EXCLUDE_RECENT) // do not try too early
+    // do not try too early: need at least one keyframe old enough (>= loop_time_gap_) to be a loop candidate
+    mtx_kf_.lock();
+    bool has_old_enough_kf = keyframe_times_.size() >= 2 &&
+                             (keyframe_times_.back() - keyframe_times_.front() >= loop_time_gap_);
+    mtx_kf_.unlock();
+    if (!has_old_enough_kf)
         return;
     // scan context 检测回环
     auto detectResult = sc_manager_.detectLoopClosureID(); // first: nn index, second: yaw diff

@@ -11,6 +11,7 @@
     sc_dist_thres: 0.3
     sc_max_radius: 80.0                    # 户外 80，室内 20~40
     scancontext_filter_size: 0.4           # 降采样体素尺寸
+    loop_time_gap: 30.0                    # 回环候选帧必须比当前帧早 ≥30s（时间间隔排除）
 
     # ---- gps ----
     use_gps: true

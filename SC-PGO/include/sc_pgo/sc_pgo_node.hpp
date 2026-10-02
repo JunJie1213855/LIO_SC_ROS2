@@ -53,6 +53,7 @@ private:
 
     // scan context
     double sc_dist_thres_, sc_max_radius_;
+    double loop_time_gap_;
     float scancontext_filter_size_;
 
     // gps

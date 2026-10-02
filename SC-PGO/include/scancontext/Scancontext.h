@@ -68,7 +68,7 @@ public:
     std::pair<double, int> distanceBtnScanContext ( MatrixXd &_sc1, MatrixXd &_sc2 ); // "D" (eq 6) in the original paper (IROS 18)
 
     // User-side API
-    void makeAndSaveScancontextAndKeys( pcl::PointCloud<SCPointType> & _scan_down );
+    void makeAndSaveScancontextAndKeys( pcl::PointCloud<SCPointType> & _scan_down, double _timestamp );
     std::pair<int, float> detectLoopClosureID( void ); // int: nearest node index, float: relative yaw  
 
     // for ltslam 
@@ -89,7 +89,6 @@ public:
     const double PC_UNIT_RINGGAP = PC_MAX_RADIUS / double(PC_NUM_RING);
 
     // tree
-    const int    NUM_EXCLUDE_RECENT = 30; // simply just keyframe gap (related with loopClosureFrequency in yaml), but node position distance-based exclusion is ok. 
     const int    NUM_CANDIDATES_FROM_TREE = 3; // 10 is enough. (refer the IROS 18 paper)
 
     // loop thres
@@ -99,13 +98,16 @@ public:
     double SC_DIST_THRES = 0.2; // 0.4-0.6 is good choice for using with robust kernel (e.g., Cauchy, DCS) + icp fitness threshold / if not, recommend 0.1-0.15
     // const double SC_DIST_THRES = 0.7; // 0.4-0.6 is good choice for using with robust kernel (e.g., Cauchy, DCS) + icp fitness threshold / if not, recommend 0.1-0.15
 
-    // config 
-    const int    TREE_MAKING_PERIOD_ = 30; // i.e., remaking tree frequency, to avoid non-mandatory every remaking, to save time cost / in the LeGO-LOAM integration, it is synchronized with the loop detection callback (which is 1Hz) so it means the tree is updated evrey 10 sec. But you can use the smaller value because it is enough fast ~ 5-50ms wrt N.
-    int          tree_making_period_conter = 0;
+    // time-based exclusion: a loop candidate keyframe must be >= LOOP_TIME_GAP (seconds) older than the query keyframe.
+    double LOOP_TIME_GAP = 30.0;
+
+    // config
+    int          last_tree_num_valid_ = -1; // number of valid (old-enough) candidates used to build polarcontext_tree_; rebuild only when it changes.
 
     // setter
     void setSCdistThres(double _new_thres);
     void setMaximumRadius(double _max_r);
+    void setLoopTimeGap(double _gap);
 
     // data 
     std::vector<double> polarcontexts_timestamp_; // optional.

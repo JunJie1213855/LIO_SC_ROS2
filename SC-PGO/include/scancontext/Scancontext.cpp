@@ -246,17 +246,18 @@ void SCManager::saveScancontextAndKeys( Eigen::MatrixXd _scd )
 } // SCManager::makeAndSaveScancontextAndKeys
 
 
-void SCManager::makeAndSaveScancontextAndKeys( pcl::PointCloud<SCPointType> & _scan_down )
+void SCManager::makeAndSaveScancontextAndKeys( pcl::PointCloud<SCPointType> & _scan_down, double _timestamp )
 {
-    Eigen::MatrixXd sc = makeScancontext(_scan_down); // v1 
+    Eigen::MatrixXd sc = makeScancontext(_scan_down); // v1
     Eigen::MatrixXd ringkey = makeRingkeyFromScancontext( sc );
     Eigen::MatrixXd sectorkey = makeSectorkeyFromScancontext( sc );
     std::vector<float> polarcontext_invkey_vec = eig2stdvec( ringkey );
 
-    polarcontexts_.push_back( sc ); 
+    polarcontexts_.push_back( sc );
     polarcontext_invkeys_.push_back( ringkey );
     polarcontext_vkeys_.push_back( sectorkey );
     polarcontext_invkeys_mat_.push_back( polarcontext_invkey_vec );
+    polarcontexts_timestamp_.push_back( _timestamp );
 } // SCManager::makeAndSaveScancontextAndKeys
 
 void SCManager::setSCdistThres(double _new_thres)
@@ -268,6 +269,11 @@ void SCManager::setMaximumRadius(double _max_r)
 {
     PC_MAX_RADIUS = _max_r;
 } // SCManager::setMaximumRadius
+
+void SCManager::setLoopTimeGap(double _gap)
+{
+    LOOP_TIME_GAP = _gap;
+} // SCManager::setLoopTimeGap
 
 std::pair<int, float> SCManager::detectLoopClosureIDBetweenSession (std::vector<float>& _curr_key, Eigen::MatrixXd& _curr_desc)
 {
@@ -339,30 +345,36 @@ std::pair<int, float> SCManager::detectLoopClosureID ( void )
 
     auto curr_key = polarcontext_invkeys_mat_.back(); // current observation (query)
     auto curr_desc = polarcontexts_.back(); // current observation (query)
+    double curr_timestamp = polarcontexts_timestamp_.back(); // timestamp of the query keyframe
 
     /* 
-     * step 1: candidates from ringkey tree_
+     * step 1: time-based exclusion of recent frames (>= LOOP_TIME_GAP older than the query)
      */
-    if( (int)polarcontext_invkeys_mat_.size() < NUM_EXCLUDE_RECENT + 1)
+    int num_valid = (int)polarcontexts_timestamp_.size();
+    while( num_valid > 0 && (curr_timestamp - polarcontexts_timestamp_[num_valid - 1]) < LOOP_TIME_GAP )
+        --num_valid;
+
+    if( num_valid < 1 )
     {
         std::pair<int, float> result {loop_id, 0.0};
-        return result; // Early return 
+        return result; // Early return : no keyframe old enough yet
     }
 
     // tree_ reconstruction (not mandatory to make everytime)
-    if( tree_making_period_conter % TREE_MAKING_PERIOD_ == 0) // to save computation cost
+    if( num_valid != last_tree_num_valid_ || !polarcontext_tree_ ) // rebuild only when the valid-candidate boundary moved
     {
         TicTocV2 t_tree_construction;
 
         polarcontext_invkeys_to_search_.clear();
-        polarcontext_invkeys_to_search_.assign( polarcontext_invkeys_mat_.begin(), polarcontext_invkeys_mat_.end() - NUM_EXCLUDE_RECENT ) ;
+        polarcontext_invkeys_to_search_.assign( polarcontext_invkeys_mat_.begin(), polarcontext_invkeys_mat_.begin() + num_valid ) ;
 
         polarcontext_tree_.reset(); 
         polarcontext_tree_ = std::make_unique<InvKeyTree>(PC_NUM_RING /* dim */, polarcontext_invkeys_to_search_, 10 /* max leaf */ );
         // tree_ptr_->index->buildIndex(); // inernally called in the constructor of InvKeyTree (for detail, refer the nanoflann and KDtreeVectorOfVectorsAdaptor)
+        last_tree_num_valid_ = num_valid;
         t_tree_construction.toc("Tree construction");
     }
-    tree_making_period_conter = tree_making_period_conter + 1;
+    // (tree is rebuilt only when the valid-candidate boundary moves; see the if above)
         
     double min_dist = 10000000; // init with somthing large
     int nn_align = 0;
