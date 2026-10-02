@@ -55,7 +55,7 @@
 
     # ---- topics ----
     sub_lidar_topic: "/cloud_registered_body"   # Point-LIO 体坐标系点云
-    sub_odom_topic: "/aft_mapped_to_init_pgo"
+    sub_odom_topic: "/aft_mapped_to_init"
     sub_gps_topic: "/gps/fix"
     pub_odom_topic: "/aft_pgo_odom"
     pub_repub_odom_topic: "/repub_odom"
