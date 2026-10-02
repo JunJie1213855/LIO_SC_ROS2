@@ -201,6 +201,7 @@ public:
     double m_noise;
     for (int i = 0; i < maximum_iter; i++) {
       dyn_share.valid = true;
+      // 这里调用 lidar 的获取 h 函数的
       h_dyn_share_modified_1(
         x_, P_.template block<3, 3>(0, 0), P_.template block<3, 3>(3, 3), dyn_share);
       if (!dyn_share.valid) {
