@@ -643,17 +643,6 @@ int main(int argc, char **argv)
             feats_down_body->points[i].x, feats_down_body->points[i].y, feats_down_body->points[i].z);
         pbody_list[i] = point_this;
         if (!extrinsic_est_en)
-        // {
-        //     if (!use_imu_as_input)
-        //     {
-        //         point_this = kf_output.x_.offset_R_L_I * point_this + kf_output.x_.offset_T_L_I;
-        //     }
-        //     else
-        //     {
-        //         point_this = kf_input.x_.offset_R_L_I * point_this + kf_input.x_.offset_T_L_I;
-        //     }
-        // }
-        // else
         {
           point_this = Lidar_R_wrt_IMU * point_this + Lidar_T_wrt_IMU;
           M3D point_crossmat;
@@ -673,7 +662,7 @@ int main(int argc, char **argv)
           for (k = 0; k < time_seq.size(); k++)
           {
             PointType &point_body = feats_down_body->points[idx + time_seq[k]];
-
+            // 当前点时间！！！
             time_current = point_body.curvature / 1000.0 + pcl_beg_time;
 
             if (is_first_frame)
@@ -700,6 +689,7 @@ int main(int argc, char **argv)
             }
             if (imu_en && !imu_deque.empty())
             {
+              //
               bool last_imu = get_time_sec(imu_next.header.stamp) ==
                               get_time_sec(imu_deque.front()->header.stamp);
               while (get_time_sec(imu_next.header.stamp) < time_predict_last_const &&
@@ -770,10 +760,12 @@ int main(int argc, char **argv)
               double dt_cov = time_current - time_update_last;
               if (dt_cov > 0.0)
               {
+                // 先IMU前向传播，将IMU传播到当前点云时间戳 time_current 前
                 kf_output.predict(dt_cov, Q_output, input_in, false, true);
                 time_update_last = time_current;
               }
             }
+            // 补齐最后一个不满 IMU 间隔的 dt，精确推到 time_current
             kf_output.predict(dt, Q_output, input_in, true, false);
             propag_time += omp_get_wtime() - propag_state_start;
             time_predict_last_const = time_current;
@@ -785,6 +777,7 @@ int main(int argc, char **argv)
               idx += time_seq[k];
               continue;
             }
+            // 内部调用点云去畸变
             if (!kf_output.update_iterated_dyn_share_modified())
             {
               idx = idx + time_seq[k];
