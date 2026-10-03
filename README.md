@@ -1,35 +1,52 @@
-# FAST_LIO_SLAM (ROS2)
+# LIO_SC_ROS2
 
 A LiDAR-inertial SLAM system with loop closure, ported to **ROS2 Humble**.
 
-- **Odometry**: [Point-LIO](https://github.com/hku-mars/Point-LIO) (a robust LiDAR-inertial odometry, replaces the original FAST-LIO2 frontend)
-- **Loop closure & pose-graph optimization**: [SC-PGO](https://github.com/gisbi-kim/SC-A-LOAM) — [Scan Context](https://github.com/irapkaist/scancontext)-based loop detection + [GTSAM](https://github.com/borglab/gtsam)-based pose-graph optimization
+- **Odometry (frontend)**: [Point-LIO](https://github.com/hku-mars/Point-LIO) or
+  [Super-LIO](https://github.com/Liansheng-Wang/Super-LIO) — two interchangeable LiDAR-inertial
+  odometry frontends (Super-LIO adds RoboSense Airy/M1 support).
+- **Loop closure & pose-graph optimization (backend)**: [SC-PGO](https://github.com/gisbi-kim/SC-A-LOAM) —
+  [Scan Context](https://github.com/irapkaist/scancontext)-based loop detection (with a 30 s
+  time-interval exclusion) + [GTSAM](https://github.com/borglab/gtsam)-based pose-graph optimization.
 
-> The original ROS1 `FAST_LIO_SLAM` frontend (FAST-LIO2) has been replaced by **Point-LIO** in this port.
+> The original ROS1 `FAST_LIO_SLAM` frontend (FAST-LIO2) has been replaced by **Point-LIO** in
+> this port; **Super-LIO** is also available as an alternative frontend.
 
 ---
 
 ## Architecture
 
 ```
-                    ┌────────────────────────────────────┐
-  LiDAR + IMU  ───▶ │  Point-LIO (pointlio_mapping)      │   LIO frontend
-                    │  /unilidar/cloud, /unilidar/imu    │
-                    └───────────────┬────────────────────┘
-                                    │  /aft_mapped_to_init        (Odometry)
-                                    │  /cloud_registered_body     (body-frame cloud)
-                                    ▼
-                    ┌────────────────────────────────────┐
-                    │  laserPGO (alaserPGO)               │   SC-PGO backend
-                    │  ScanContext loop + GTSAM pose graph│
-                    └───────────────┬────────────────────┘
-                                    │  /aft_pgo_path, /aft_pgo_map,
-                                    │  /aft_pgo_odom, /loop_scan_local, /loop_submap_local
-                                    ▼
-                              optimized map / trajectory
+                 ┌──────────────────────────────────────────────┐
+  LiDAR + IMU ──▶│  Frontend (either one):                       │
+                 │    • Point-LIO   (pointlio_mapping)           │
+                 │    • Super-LIO   (super_lio_node)             │
+                 └────────────────────┬─────────────────────────┘
+                                      │  odometry          /aft_mapped_to_init
+                                      │  body-frame cloud  /cloud_registered_body
+                                      ▼
+                 ┌──────────────────────────────────────────────┐
+                 │  Backend: laserPGO (alaserPGO)                │
+                 │    ScanContext loop detection                 │
+                 │    (30 s time-interval exclusion)             │
+                 │    + GTSAM (ISAM2) pose-graph optimization    │
+                 └────────────────────┬─────────────────────────┘
+                                      │  /aft_pgo_path, /aft_pgo_map,
+                                      │  /aft_pgo_odom, /loop_scan_local, /loop_submap_local
+                                      ▼
+                             optimized map / trajectory
 ```
 
-The frontend (Point-LIO) and the backend (laserPGO) run as **separate nodes** — Point-LIO produces odometry + a local (ego-centric) point cloud, and laserPGO consumes them for loop closure and pose-graph optimization.
+The **frontend** (Point-LIO *or* Super-LIO) and the **backend** (`laserPGO`) run as **separate
+nodes** — the frontend produces odometry + a local (ego-centric) point cloud, and `laserPGO`
+consumes them for loop closure and pose-graph optimization. Point-LIO and Super-LIO are
+alternatives: pick one, then feed its `odometry` + `body-frame cloud` into the same SC-PGO backend.
+
+- Point-LIO topics: `/aft_mapped_to_init` (odometry), `/cloud_registered_body` (body-frame cloud)
+- Super-LIO topics: `/lio/odom` (odometry), `/lio/cloud_world` (world-frame cloud). Super-LIO
+  publishes no body-frame cloud by default, so feeding it into `laserPGO` requires remapping
+  `/lio/odom` → `/aft_mapped_to_init` and providing an ego-centric cloud on `/cloud_registered_body`
+  (ScanContext expects a body-frame cloud).
 
 ---
 
