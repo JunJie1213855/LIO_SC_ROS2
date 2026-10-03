@@ -37,13 +37,20 @@ The frontend (Point-LIO) and the backend (laserPGO) run as **separate nodes** �
 
 | Directory | ROS2 package | Role |
 |---|---|---|
-| `Point_LIO/` | `point_lio` | LiDAR-inertial odometry frontend |
+| `Point_LIO/` | `point_lio` | LiDAR-inertial odometry frontend (Point-LIO) |
 | `SC-PGO/` | `aloam_velodyne` | ScanContext loop closure + GTSAM pose-graph backend |
+| `Super_LIO/src/` | `super_lio` | Super-LIO frontend (alternative LIO; RoboSense Airy/M1 support) |
+| `basic/` | `basic` | Super-LIO foundation library (Eigen `SO3`/`SE3` math + data structs) |
+
+> `super_lio` is an **alternative** frontend to `point_lio` — both publish the same
+> odometry/body-cloud interface that `laserPGO` (SC-PGO) consumes. It depends on the `basic`
+> package.
 
 ### Executables
 
 - `point_lio` → `pointlio_mapping` (node `laserMapping`)
 - `aloam_velodyne` → `alaserPGO` (SC-PGO backend)
+- `super_lio` → `super_lio_node` (Super-LIO SLAM), `relocation_node` (relocalization against a saved map)
 
 ---
 
@@ -67,16 +74,23 @@ sudo apt install ros-humble-pcl-ros ros-humble-pcl-conversions ros-humble-cv-bri
 ## Build
 
 ```bash
-cd ~/rosws/Fast_lio_slam_ws
+cd ~/rosws/LIO_SC_ROS2
 source /opt/ros/humble/setup.bash
+source /home/ros/rosws/livox_ros_ws/install/setup.bash   # required: super_lio does find_package(livox_ros_driver2 REQUIRED)
 colcon build
 source install/setup.bash
 ```
+
+> The `livox_ros_driver2` workspace must be sourced before `colcon build`, otherwise the
+> `super_lio` package fails at configure time (`find_package(livox_ros_driver2 REQUIRED)`).
+> The `point_lio` / `aloam_velodyne` packages do not need it.
 
 Build only the SLAM packages:
 
 ```bash
 colcon build --packages-select point_lio aloam_velodyne
+# or, including the Super-LIO frontend and its foundation library:
+colcon build --packages-select basic super_lio
 ```
 
 ---
@@ -139,6 +153,25 @@ Point-LIO publishes, and `laserPGO` subscribes to:
 
 ---
 
+## SC-PGO configuration (`SC-PGO/config/sc_pgo.yaml`)
+
+Key loop-closure parameters:
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `loop_time_gap` | `30.0` | **Time-interval exclusion (s)** — a loop-candidate keyframe must be ≥ this many seconds older than the query keyframe before it can match. |
+| `sc_dist_thres` | `0.3` | ScanContext cosine-distance threshold; a candidate below this is a loop. |
+| `sc_max_radius` | `80.0` | Max range (m) encoded into the ring key; use 20–40 indoors. |
+
+> `loop_time_gap` implements "no loop within 30 s": recent keyframes are excluded **by
+> timestamp** (not by frame count). It replaced the original frame-count exclusion
+> (`NUM_EXCLUDE_RECENT = 30`). The exclusion lives in
+> `SCManager::detectLoopClosureID()` (`SC-PGO/include/scancontext/Scancontext.cpp`), which walks
+> the monotonically-increasing `polarcontexts_timestamp_` vector to find the oldest keyframe that
+> is still "too recent", and rebuilds the KD-tree only when that boundary moves.
+
+---
+
 ## Point-LIO config files (`Point_LIO/config/`)
 
 | Config | Lidar | `lidar_type` | `scan_line` | `lid_topic` |
@@ -170,6 +203,11 @@ Key parameters to check for your sensor: `common.lid_topic` / `common.imu_topic`
   `laserPosegraphOptimization.cpp`.
 - `alaserPGO` clears `<save_directory>/Scans/` on startup (`rm -r` then `mkdir -p`); the
   "cannot remove" message on first run is harmless.
+- **`super_lio` fails to configure** with `CMake Error: .../src/Super_LIO/src does not appear to
+  contain CMakeLists.txt`: the `Super_LIO/.gitignore` ignores `src/CMakeLists.txt`, so it is easy
+  to clone without it. This repo adds it back, along with the `basic/` package (the
+  `robosenseM1_ros::Point` type in `basic/include/basic/alias.h` supports the RoboSense Airy/M1
+  `RS_AIRY` lidar). Track it with `git add -f Super_LIO/src/CMakeLists.txt` if needed.
 
 ---
 

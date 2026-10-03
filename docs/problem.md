@@ -122,3 +122,45 @@ G_m_s2 / acc_norm = 9.678 / 1.0 ≈ 9.68 倍
 
 * 看 SC-PGO/config/sc_pgo.yaml 对应的位姿话题和body点云话题对部队。 使用 `ros2 node info /laserPGO` 或者直接看配置文件。
 * 话题对了以后，查看对应 QoS 协议对不对。采用 `ros2 topic info -v xxx` 即可。
+
+
+# super_lio 构建失败（缺 CMakeLists.txt / basic 包 / robosenseM1_ros）
+
+> 日期：2026-10-03
+
+## 1. 问题现象
+
+`colcon build` 报错，`super_lio` 包失败，并连带 `aloam_velodyne`、`point_lio` 被 `Aborted`：
+
+```
+CMake Error: The source directory ".../src/Super_LIO/src" does not appear to contain CMakeLists.txt.
+Failed   <<< super_lio
+Aborted  <<< aloam_velodyne
+Aborted  <<< point_lio
+```
+
+## 2. 根本原因（三个叠加）
+
+1. **`super_lio` 缺 `CMakeLists.txt`**：`Super_LIO/.gitignore` 第 9 行是 `src/CMakeLists.txt`，
+   该文件被 git 忽略，clone 下来后 `Super_LIO/src/` 里没有构建入口。
+2. **缺 `basic` 依赖包**：Super-LIO 拆成 `basic`（基础库）+ `super_lio`（主程序）两个包，
+   只放了 `Super_LIO/src` 没放 `basic`，`find_package(basic)` / 头文件都找不到。
+3. **`robosenseM1_ros::Point` 未定义**：本仓库的 `super_lio` 源码支持 RoboSense Airy/M1
+   （`LID_TYPE::RS_AIRY`），但**上游公开仓库根本没有 `robosenseM1_ros` / `RS_AIRY` 这两个符号**
+   （已查完整 git 历史确认），所以直接拷上游 `basic/alias.h` 仍然编译不过。
+
+## 3. 解决
+
+- 从上游 Super-LIO ros2 分支拷入 `src/Super_LIO/src/CMakeLists.txt` 与 `src/basic/`。
+- `basic/include/basic/alias.h` 用**本机另一个工作区**里带 `robosenseM1_ros` 的版本覆盖：
+  `/home/ros/rosws/LIO_Nav2_ROS2/src/localization/Super-LIO/src/basic/include/basic/alias.h`。
+- 重新编译 `basic`（使 `install/basic/include/basic/alias.h` 更新，否则 `super_lio` 用的是
+  **安装目录**里的旧头文件，会继续报 `robosenseM1_ros` 未定义）；必要时 `touch` basic 源码解决
+  clock skew 警告。
+
+## 4. 注意点
+
+- 完整 build 前必须 `source /home/ros/rosws/livox_ros_ws/install/setup.bash`，因为
+  `super_lio` 的 CMakeLists 有 `find_package(livox_ros_driver2 REQUIRED)`。
+- `src/Super_LIO/src/CMakeLists.txt` 被 `Super_LIO/.gitignore` 忽略，普通 `git add` 不会入库，
+  需要 `git add -f Super_LIO/src/CMakeLists.txt`（或删掉 `.gitignore` 里那行）。
