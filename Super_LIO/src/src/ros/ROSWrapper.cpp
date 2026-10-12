@@ -1,5 +1,9 @@
 
 #include "ros/ROSWrapper.h"
+#include <algorithm>
+#include <cmath>
+#include <filesystem>
+#include <stdexcept>
 #include "geometry_msgs/msg/pose_with_covariance_stamped.hpp"
 
 
@@ -23,7 +27,8 @@ void LoadParamFromRos(rclcpp::Node& node)
 
   node.declare_parameter<std::string>("lio.map.save_map_dir", "");
   node.get_parameter("lio.map.save_map_dir", g_save_map_dir);
-  g_save_map_dir = g_root_dir + g_save_map_dir;
+  if (!std::filesystem::path(g_save_map_dir).is_absolute())
+    g_save_map_dir = g_root_dir + g_save_map_dir;
 
   node.declare_parameter<std::string>("lio.map.map_name", "default");
   node.get_parameter("lio.map.map_name", g_map_name);
@@ -529,6 +534,49 @@ void ROSWrapper::stdMsgHandler(const sensor_msgs::msg::PointCloud2::SharedPtr ms
     lidar_data.end_time = lidar_data.start_time + offset_time;
     break;
   }
+  case LID_TYPE::UNITREE_L1:
+  {
+    // Same x/y/z/intensity/time FLOAT32 layout used by Point-LIO's UniLidar
+    // handler. Ring is not needed by Super-LIO; reuse the matching PCL layout.
+    for (const auto &name : {"x", "y", "z", "intensity", "time"}) {
+      auto field = std::find_if(msg->fields.begin(), msg->fields.end(),
+          [name](const auto &f) { return f.name == name; });
+      if (field == msg->fields.end() || field->datatype != sensor_msgs::msg::PointField::FLOAT32 || field->count != 1) {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+            "Unitree L1 requires a scalar FLOAT32 '%s' field; dropping scan", name);
+        return;
+      }
+    }
+    if (g_filter_rate < 1 || g_timestamp_unit < 0 || g_timestamp_unit > 3)
+      throw std::invalid_argument("Unitree L1 requires filter_rate >= 1 and timestamp_unit in [0, 3]");
+    constexpr double scales[] = {1.0, 1e-3, 1e-6, 1e-9};
+    const double scale = scales[g_timestamp_unit];
+    pcl::PointCloud<velodyne_ros::Point> original;
+    pcl::fromROSMsg(*msg, original);
+    if (original.empty()) return;
+    lidar_data.start_time = stampToSec(msg->header.stamp);
+    lidar_data.pc->reserve(original.size() / g_filter_rate + 1);
+    double scan_duration = 0.0;
+    for (std::size_t i = 0; i < original.size(); ++i) {
+      const auto &point = original[i];
+      const double relative_time = point.time * scale;
+      if (!std::isfinite(relative_time) || relative_time < 0.0) continue;
+      // End time includes points removed by distance/stride filtering.
+      scan_duration = std::max(scan_duration, relative_time);
+      if (i % g_filter_rate != 0 || !std::isfinite(point.x) ||
+          !std::isfinite(point.y) || !std::isfinite(point.z) ||
+          !std::isfinite(point.intensity) || !validPoint(point.x, point.y, point.z)) continue;
+      lidar_data.pc->emplace_back(point.x, point.y, point.z, point.intensity, relative_time);
+    }
+    RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 2000,
+        "Unitree scan: input=%zu kept=%zu duration=%.6f",
+        original.size(), lidar_data.pc->size(), scan_duration);
+    if (lidar_data.pc->empty()) return;
+    std::sort(lidar_data.pc->begin(), lidar_data.pc->end(),
+        [](const auto &a, const auto &b) { return a.offset_time < b.offset_time; });
+    lidar_data.end_time = lidar_data.start_time + scan_duration;
+    break;
+  }
   case LID_TYPE::RS_AIRY:
   {
     // Compute timestamp unit scale: convert input unit to seconds
@@ -574,6 +622,8 @@ void ROSWrapper::stdMsgHandler(const sensor_msgs::msg::PointCloud2::SharedPtr ms
 
 bool ROSWrapper::sync_measure(MeasureGroup& meas){
   if (lidar_buffer_.empty() || imu_buffer_.empty()) {
+    RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 2000,
+        "Waiting for sensors: lidar=%zu imu=%zu", lidar_buffer_.size(), imu_buffer_.size());
     return false;
   }
 
@@ -589,6 +639,8 @@ bool ROSWrapper::sync_measure(MeasureGroup& meas){
   }
 
   if (last_timestamp_imu_ < meas.lidar.end_time) {
+    RCLCPP_DEBUG_THROTTLE(get_logger(), *get_clock(), 2000,
+        "Waiting for IMU: last=%.9f scan_end=%.9f", last_timestamp_imu_, meas.lidar.end_time);
     return false;
   }
 

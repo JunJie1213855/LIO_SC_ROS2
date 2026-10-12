@@ -43,6 +43,8 @@
   <exec_depend>cv_bridge</exec_depend>
   <exec_depend>pcl_conversions</exec_depend>
 
+  <exec_depend>python3-numpy</exec_depend>
+
   <export>
 	  <build_type>ament_cmake</build_type>
   </export>

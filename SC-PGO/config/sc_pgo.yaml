@@ -13,6 +13,10 @@
     scancontext_filter_size: 0.4           # 降采样体素尺寸
     loop_time_gap: 30.0                    # 回环候选帧必须比当前帧早 ≥30s（时间间隔排除）
 
+    # 原始前端位姿的回环候选限制；0 表示关闭对应限制
+    loop_max_translation_distance: 15.0    # 三维位置欧氏距离（米）
+    loop_max_rotation_deg: 60.0            # 最短相对旋转角（度，0~180）；反向回访可设 180
+
     # ---- gps ----
     use_gps: true
     gps_time_tolerance: 0.1                # 该时间窗（秒）内到达的 GPS 视为当前帧的观测

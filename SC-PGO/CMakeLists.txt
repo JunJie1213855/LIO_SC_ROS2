@@ -71,3 +71,6 @@ install(TARGETS
 install(DIRECTORY launch rviz_cfg config
   DESTINATION share/${PROJECT_NAME}
 )
+install(PROGRAMS scripts/superlio_scpgo_bridge.py
+  DESTINATION lib/${PROJECT_NAME}
+)

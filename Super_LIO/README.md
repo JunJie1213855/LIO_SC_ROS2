@@ -172,3 +172,25 @@ We kindly recommend to cite [our paper](https://ieeexplore.ieee.org/document/113
  - [Important revisions]: Fixed some known errors and improved algorithm accuracy!
  
 </details>
+
+## ROS2 Unitree UniLidar L1 support
+
+Build `basic` and `super_lio`, then source the installation containing this change.
+
+```bash
+ros2 launch super_lio unitree_l1.launch.py
+# Headless:
+ros2 launch super_lio unitree_l1.launch.py rviz:=false
+# Custom configuration:
+ros2 launch super_lio unitree_l1.launch.py config:=/absolute/path/unitree_l1.yaml
+```
+
+The configuration uses `/unilidar/cloud` and `/unilidar/imu`, lidar type 9
+(`UNITREE_L1`), and Point-LIO L1 extrinsics. PointCloud2 `time` is a relative point
+offset in seconds (`timestamp_unit: 0`). Super-LIO uses x/y/z/intensity/time; ring
+is not required. Outputs remain `/lio/odom`, `/lio/path`, and `/lio/cloud_world`
+in the `world` frame. This sensor support does not include a Point-LIO-compatible
+SC-PGO topic adapter.
+
+Map saving is disabled by default. Absolute map output paths are supported;
+adjust the provided save directory for your machine if enabling map saving.
