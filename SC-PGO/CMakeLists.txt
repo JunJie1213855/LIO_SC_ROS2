@@ -10,6 +10,7 @@ find_package(ament_cmake REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclpy REQUIRED)
 # find_package(rosbag REQUIRED)
@@ -52,7 +53,7 @@ add_executable(alaserPGO
   src/sc_pgo_node.cpp
   include/scancontext/Scancontext.cpp
 )
-ament_target_dependencies(alaserPGO rclcpp rclpy std_msgs geometry_msgs nav_msgs sensor_msgs tf2 tf2_ros tf2_geometry_msgs cv_bridge pcl_conversions)
+ament_target_dependencies(alaserPGO rclcpp rclpy std_msgs geometry_msgs nav_msgs sensor_msgs visualization_msgs tf2 tf2_ros tf2_geometry_msgs cv_bridge pcl_conversions)
 target_compile_options(alaserPGO
   PRIVATE ${OpenMP_CXX_FLAGS}
 )

@@ -64,3 +64,4 @@
     pub_map_topic: "/aft_pgo_map"
     pub_loop_scan_topic: "/loop_scan_local"
     pub_loop_submap_topic: "/loop_submap_local"
+    pub_loop_edges_topic: "/pgo_loop_edges"

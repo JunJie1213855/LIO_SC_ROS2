@@ -61,6 +61,7 @@ extern double imu_meas_acc_cov, imu_meas_omg_cov;
 extern int lidar_type, pcd_save_interval;
 extern std::vector<double> gravity_init, gravity;
 extern bool runtime_pos_log, pcd_save_en, path_en;
+extern bool runtime_eig_log;
 extern bool scan_pub_en, scan_body_pub_en, tf_send_en;
 extern shared_ptr<Preprocess> p_pre;
 extern shared_ptr<ImuProcess> p_imu;
@@ -81,7 +82,7 @@ extern std::vector<double> init_pose;
 
 extern MeasureGroup Measures;
 
-extern ofstream fout_out, fout_imu_pbp;
+extern ofstream fout_out, fout_imu_pbp, fout_eig;
 void readParameters(std::shared_ptr<rclcpp::Node> &n);
 void open_file();
 Eigen::Matrix<double, 3, 1> SO3ToEuler(const SO3 &orient);

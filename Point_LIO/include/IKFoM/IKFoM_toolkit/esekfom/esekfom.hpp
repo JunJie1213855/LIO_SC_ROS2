@@ -214,6 +214,25 @@ public:
       // Matrix<scalar_type, Eigen::Dynamic, Eigen::Dynamic> h_v = dyn_share.h_v;
       dof_Measurement = h_x.rows();
       m_noise = dyn_share.M_Noise;
+
+      // Degeneracy observation: eigenvalues (ascending) of the LiDAR point-to-plane information
+      // matrix H^T H, split into translation (h_x cols 0..2) and rotation (cols 3..5) blocks,
+      // plus the full 6x6 for comparison (keeps the translation-rotation cross-coupling).
+      {
+        Eigen::Matrix<double, 3, 3> HTH_t =
+          h_x.block(0, 0, h_x.rows(), 3).transpose() * h_x.block(0, 0, h_x.rows(), 3);
+        Eigen::Matrix<double, 3, 3> HTH_r =
+          h_x.block(0, 3, h_x.rows(), 3).transpose() * h_x.block(0, 3, h_x.rows(), 3);
+        Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 3, 3>> es_t(HTH_t);
+        Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 3, 3>> es_r(HTH_r);
+        H_eig_t_ = es_t.eigenvalues();  // ascending
+        H_eig_r_ = es_r.eigenvalues();  // ascending
+
+        Eigen::Matrix<double, 6, 6> HTH =
+          h_x.block(0, 0, h_x.rows(), 6).transpose() * h_x.block(0, 0, h_x.rows(), 6);
+        Eigen::SelfAdjointEigenSolver<Eigen::Matrix<double, 6, 6>> es(HTH);
+        H_eig_full_ = es.eigenvalues();  // ascending
+      }
       // dof_Measurement_noise = dyn_share.R.rows();
       // vectorized_state dx, dx_new;
       // x_.boxminus(dx, x_propagated);
@@ -304,6 +323,16 @@ public:
 
   const state & get_x() const { return x_; }
   const cov & get_P() const { return P_; }
+  // Last LiDAR observation's degeneracy information: eigenvalues (ascending) of H^T H.
+  // h_x columns 0..2 = translation, 3..5 = rotation (see h_model_* in Estimator.cpp).
+  // Split blocks are intuitive (which DOF degrades), the full 6x6 keeps the cross-coupling
+  // between translation and rotation for a strict degeneracy judgement.
+  Eigen::Matrix<double, 3, 1> H_eig_t_ = Eigen::Matrix<double, 3, 1>::Zero();
+  Eigen::Matrix<double, 3, 1> H_eig_r_ = Eigen::Matrix<double, 3, 1>::Zero();
+  Eigen::Matrix<double, 6, 1> H_eig_full_ = Eigen::Matrix<double, 6, 1>::Zero();
+  const Eigen::Matrix<double, 3, 1> &get_H_eig_t() const { return H_eig_t_; }
+  const Eigen::Matrix<double, 3, 1> &get_H_eig_r() const { return H_eig_r_; }
+  const Eigen::Matrix<double, 6, 1> &get_H_eig_full() const { return H_eig_full_; }
   cov P_;
   state x_;
 

@@ -1,4 +1,5 @@
 #include <fstream>
+#include <algorithm>
 #include <math.h>
 #include <vector>
 #include <mutex>
@@ -186,6 +187,10 @@ SCPGONode::SCPGONode(const rclcpp::NodeOptions &options)
     pub_loop_scan_local_ = create_publisher<sensor_msgs::msg::PointCloud2>(pub_loop_scan_topic_, 100);
     pub_loop_submap_local_ = create_publisher<sensor_msgs::msg::PointCloud2>(pub_loop_submap_topic_, 100);
 
+    pub_loop_edges_ = create_publisher<visualization_msgs::msg::MarkerArray>(
+        pub_loop_edges_topic_, rclcpp::QoS(1).reliable().transient_local());
+    pubLoopEdges(); // Empty snapshot clears this node's markers from a previous run.
+
     // 多线程，核心
     thread_pg_ = std::thread(&SCPGONode::process_pg, this);       // pose graph construction,  添加因子
     thread_lcd_ = std::thread(&SCPGONode::process_lcd, this);     // loop closure detection, 定时回环检测  scan context, 不做优化
@@ -310,6 +315,9 @@ void SCPGONode::loadParams()
     // 地图可视化
     declare_parameter("mapviz_filter_size", 0.4);
     mapviz_filter_size_ = static_cast<float>(get_parameter("mapviz_filter_size").get_parameter_value().get<double>());
+
+    declare_parameter("pub_loop_edges_topic", std::string("/pgo_loop_edges"));
+    pub_loop_edges_topic_ = get_parameter("pub_loop_edges_topic").as_string();
 
     // 话题名
     declare_parameter("sub_lidar_topic", std::string("/cloud_registered_body"));
@@ -479,6 +487,16 @@ void SCPGONode::updatePoses()
         p.pitch = isam_current_estimate_.at<gtsam::Pose3>(node_idx).rotation().pitch();
         p.yaw = isam_current_estimate_.at<gtsam::Pose3>(node_idx).rotation().yaw();
     }
+    // Only expose loop constraints after ISAM2 successfully consumed their batch.
+    for (const auto &edge : pending_loop_edges_)
+    {
+        if (std::find(optimized_loop_edges_.begin(), optimized_loop_edges_.end(), edge) == optimized_loop_edges_.end())
+        {
+            optimized_loop_edges_.push_back(edge);
+            RCLCPP_INFO(get_logger(), "PGO loop optimized: keyframes %d <-> %d", edge.first, edge.second);
+        }
+    }
+    pending_loop_edges_.clear();
     mtx_kf_.unlock();
 
     mtx_recent_pose_.lock();
@@ -502,6 +520,7 @@ void SCPGONode::runISAM2opt()
 
     isam_current_estimate_ = isam_->calculateEstimate();
     updatePoses();
+    pubLoopEdges();
 }
 
 pcl::PointCloud<PointType>::Ptr SCPGONode::transformPointCloud(pcl::PointCloud<PointType>::Ptr cloudIn, gtsam::Pose3 transformIn)
@@ -860,6 +879,7 @@ void SCPGONode::process_icp()
                 gtsam::Pose3 relative_pose = relative_pose_optional.value();
                 mtx_posegraph_.lock();
                 gt_sam_graph_.add(gtsam::BetweenFactor<gtsam::Pose3>(prev_node_idx, curr_node_idx, relative_pose, robust_loop_noise_));
+                pending_loop_edges_.push_back(loop_idx_pair);
                 // runISAM2opt();
                 mtx_posegraph_.unlock();
             }
@@ -903,6 +923,54 @@ void SCPGONode::process_isam()
             saveOdometryVerticesKITTIformat(odom_kitti_format_);                        // pose
         }
     }
+}
+
+void SCPGONode::pubLoopEdges()
+{
+    visualization_msgs::msg::MarkerArray snapshot;
+    visualization_msgs::msg::Marker lines;
+    lines.header.frame_id = "camera_init";
+    // Latest transform is used; geometry already lives in the fixed map frame.
+    lines.ns = "pgo_loop_edges";
+    lines.id = 0;
+    lines.type = visualization_msgs::msg::Marker::LINE_LIST;
+    lines.action = visualization_msgs::msg::Marker::ADD;
+    lines.pose.orientation.w = 1.0;
+    lines.scale.x = 0.12;
+    lines.color.r = 1.0;
+    lines.color.b = 1.0;
+    lines.color.a = 1.0;
+
+    auto endpoints = lines;
+    endpoints.ns = "pgo_loop_endpoints";
+    endpoints.type = visualization_msgs::msg::Marker::SPHERE_LIST;
+    endpoints.scale.x = endpoints.scale.y = endpoints.scale.z = 0.35;
+    endpoints.color.g = 0.8;
+    endpoints.color.b = 0.0;
+
+    {
+        std::lock_guard<std::mutex> lock(mtx_kf_);
+        for (const auto &edge : optimized_loop_edges_)
+        {
+            for (int index : {edge.first, edge.second})
+            {
+                const auto &pose = keyframe_poses_updated_.at(index);
+                geometry_msgs::msg::Point point;
+                point.x = pose.x;
+                point.y = pose.y;
+                point.z = pose.z;
+                lines.points.push_back(point);
+            }
+        }
+    }
+    endpoints.points = lines.points;
+    if (lines.points.empty())
+    {
+        lines.action = endpoints.action = visualization_msgs::msg::Marker::DELETE;
+    }
+    snapshot.markers.push_back(std::move(lines));
+    snapshot.markers.push_back(std::move(endpoints));
+    pub_loop_edges_->publish(snapshot);
 }
 
 void SCPGONode::pubMap()

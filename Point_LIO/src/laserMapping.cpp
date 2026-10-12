@@ -423,6 +423,10 @@ int main(int argc, char **argv)
         lid_topic, rclcpp::SensorDataQoS(),
         [](const livox_ros_driver2::msg::CustomMsg::SharedPtr msg)
         { livox_pcl_cbk(msg); });
+    // sub_pcl_livox = nh->create_subscription<livox_ros_driver2::msg::CustomMsg>(
+    //     lid_topic, rclcpp::QoS(1000).reliable(),
+    //     [](const livox_ros_driver2::msg::CustomMsg::SharedPtr msg)
+    //     { livox_pcl_cbk(msg); });
   }
   else
   {
@@ -436,6 +440,9 @@ int main(int argc, char **argv)
   }
   auto sub_imu =
       nh->create_subscription<sensor_msgs::msg::Imu>(imu_topic, rclcpp::SensorDataQoS(), imu_cbk);
+  // auto sub_imu =
+  //     nh->create_subscription<sensor_msgs::msg::Imu>(imu_topic, rclcpp::QoS(1000).reliable(), imu_cbk);
+
   auto pub_laser_cloud_full_res =
       nh->create_publisher<sensor_msgs::msg::PointCloud2>("cloud_registered", 20);
   auto pub_laser_cloud_full_res_body =
@@ -783,6 +790,15 @@ int main(int argc, char **argv)
               idx = idx + time_seq[k];
               continue;
             }
+            if (runtime_eig_log)
+            {
+              const auto &et = kf_output.get_H_eig_t();     // ascending
+              const auto &er = kf_output.get_H_eig_r();     // ascending
+              const auto &ef = kf_output.get_H_eig_full();  // ascending
+              fout_eig << setw(20) << Measures.lidar_beg_time - first_lidar_time << " "
+                       << et.transpose() << " " << er.transpose() << " " << ef.transpose() << " "
+                       << effct_feat_num << '\n';
+            }
             solve_start = omp_get_wtime();
 
             if (publish_odometry_without_downsample)
@@ -996,6 +1012,15 @@ int main(int argc, char **argv)
               idx = idx + time_seq[k];
               continue;
             }
+            if (runtime_eig_log)
+            {
+              const auto &et = kf_input.get_H_eig_t();     // ascending
+              const auto &er = kf_input.get_H_eig_r();     // ascending
+              const auto &ef = kf_input.get_H_eig_full();  // ascending
+              fout_eig << setw(20) << Measures.lidar_beg_time - first_lidar_time << " "
+                       << et.transpose() << " " << er.transpose() << " " << ef.transpose() << " "
+                       << effct_feat_num << '\n';
+            }
 
             solve_start = omp_get_wtime();
 
@@ -1205,5 +1230,6 @@ int main(int argc, char **argv)
   }
   fout_out.close();
   fout_imu_pbp.close();
+  fout_eig.close();
   return 0;
 }

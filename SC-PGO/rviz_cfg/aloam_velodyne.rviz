@@ -289,6 +289,17 @@ Visualization Manager:
       Use Fixed Frame: true
       Use rainbow: true
       Value: false
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: PGO Loop Edges
+      Namespaces: {}
+      Topic:
+        Depth: 1
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /pgo_loop_edges
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 0; 0; 0

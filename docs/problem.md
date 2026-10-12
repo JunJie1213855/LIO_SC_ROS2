@@ -164,3 +164,76 @@ Aborted  <<< point_lio
   `super_lio` 的 CMakeLists 有 `find_package(livox_ros_driver2 REQUIRED)`。
 - `src/Super_LIO/src/CMakeLists.txt` 被 `Super_LIO/.gitignore` 忽略，普通 `git add` 不会入库，
   需要 `git add -f Super_LIO/src/CMakeLists.txt`（或删掉 `.gitignore` 里那行）。
+
+---
+
+# Point-LIO 单独运行正常，联用 SC-PGO 和两个 RViz 后漂移
+
+> 日期：2026-10-12
+> 状态：排查并提供低负载配置后，用户反馈“好了没问题了”。用户未明确说明最终采用了哪些配置，因此不把某一项调整记录为唯一根因修复。
+
+## 1. 问题现象与环境
+
+- 系统：WSL Ubuntu 22.04、ROS 2 Humble。
+- 工作空间：`/home/ros/rosws/LIO_SC_ROS2`。
+- 数据包：`/mnt/d/dataset/SLAM/unitree/L1/unilidar-2023-09-22-12-42-04`。
+- 单独运行 Point-LIO 并播放数据包，用户观察到定位正常。
+- 加入 SC-PGO，并使用 `rviz:=true` 打开第二个 RViz 后，启动后一分钟内出现漂移；用户确认两个窗口都漂移。
+
+复现时的命令（分别在不同终端运行）：
+
+```bash
+ros2 launch point_lio point_lio_unitree.launch.py
+ros2 launch aloam_velodyne pointlio_scpgo.launch.py rviz:=true
+ros2 bag play /mnt/d/dataset/SLAM/unitree/L1/unilidar-2023-09-22-12-42-04
+```
+
+注意：排查时 `point_lio_unitree.launch.py` 实际默认加载 `unilidar_l2.yaml`，不能仅凭数据包为 L1 就认定加载的是 `unilidar_l1.yaml`。
+
+## 2. 已核实的排查证据
+
+1. 后端不向 Point-LIO 反馈优化后的位姿。Point-LIO 输出 `/aft_mapped_to_init`、`/path`，PGO 输出 `/aft_pgo_odom`、`/aft_pgo_path`；两个 RViz 的固定坐标系均为 `camera_init`。
+2. 最新一次运行日志中，数据开始约 32 秒后连续使用了 `0↔31`、`0↔33`、`0↔36`、`2↔38`、`0↔39` 等回环。当前配置 `loop_time_gap: 30.0`，因此这段时间开始产生回环计算与优化负载。
+3. 对照 `/home/ros/sc_pgo_data/odom_poses.txt` 与 `optimized_poses.txt`，两者均有 40 个关键帧，保存的位置差最大约 **0.0027565 m（2.76 mm）**。这次观察到的大幅位置变化已存在于原始里程计中，不能归因于 PGO 对这些保存关键帧施加了米级平移修正；这一对比不是与真值轨迹的精度评估。
+4. 数据包 IMU 平均频率约 **250 Hz**。Point-LIO 使用 `rclcpp::SensorDataQoS()` 订阅 IMU，其默认历史深度为 **5**、可靠性为 **Best Effort**，约对应 20 ms 的 IMU 数据。
+5. Point-LIO 在主循环中调用 `executor.spin_some()`，同时执行估计与发布。后端原配置使用 `num_cores_transform: 16`、`num_cores_icp: 8`，并执行回环 ICP、地图发布；第二个 RViz 进一步增加处理与渲染负载。
+
+## 3. 原因判断及证据边界
+
+优先怀疑联用时计算、通信或调度负载增加，使前端不能及时处理 IMU 消息；深度为 5 的接收队列可能覆盖未处理消息，进而影响惯性传播。约 30 秒后回环计算开始，时间上与用户报告相符。
+
+**这是有代码依据的排查假设，尚未通过 IMU 丢消息计数、CPU 时间记录或完整对照实验直接证实。** 用户反馈问题已解决，但没有提供最终调整清单，不能据此断言“已证实 CPU 不够”或“已证实 IMU 丢包”。
+
+另发现一个独立的后端源码问题：`SC-PGO/src/sc_pgo_node.cpp` 的 `loopFindNearKeyframesCloud()` 使用 `keyframe_poses_updated_[root_idx]` 变换每一帧历史点云，而不是各自的关键帧位姿。这会影响历史子地图几何和 ICP 验证；本次排查未修复它，也不能用它直接解释前端原始位姿漂移。
+
+## 4. 提供的处理方案与结果
+
+提供低负载配置 `E:\code\codex\point-lio-sc\diagnostics\low_load.yaml`，对应 WSL 路径 `/mnt/e/code/codex/point-lio-sc/diagnostics/low_load.yaml`：
+
+| 参数 | 原值 | 低负载值 |
+|------|------|----------|
+| `num_cores_transform` | 16 | 1 |
+| `num_cores_icp` | 8 | 1 |
+| `viz_map_frequency` | 0.1 Hz | 0.01 Hz |
+| `viz_path_frequency` | 10 Hz | 2 Hz |
+| `loop_closure_frequency` | 1 Hz | 0.5 Hz |
+
+该配置保留回环检测，`loop_time_gap` 仍为 30 秒。后端可直接运行，避免自动打开第二个 RViz：
+
+```bash
+ros2 run aloam_velodyne alaserPGO --ros-args   --params-file /mnt/e/code/codex/point-lio-sc/diagnostics/low_load.yaml
+```
+
+Point-LIO 和数据包保持原启动方式；运行诊断时只保留一个后端实例。后端输出保存到 `/mnt/e/code/codex/point-lio-sc/diagnostics/low_load/`。
+
+同时提供 `diagnostics/no_loop.yaml`，将 `loop_time_gap` 设为 `1.0e9`，用于对该数据包暂时排除回环，帮助区分回环阶段负载与其他后端负载。它是诊断配置，不是正式关闭回环的功能开关。
+
+**结果：用户随后反馈问题已解决。以上两组完整对照实验未由助手执行，最终实际生效的调整组合未确认。**
+
+## 5. 再次出现时的排查顺序
+
+1. 先区分漂移来自原始 `/path`、`/aft_mapped_to_init`，还是优化后的 `/aft_pgo_path`、`/aft_pgo_odom`。
+2. 对照同一次运行的 `odom_poses.txt` 与 `optimized_poses.txt`，并核对首次回环被使用的时间。
+3. 在相同 bag 播放速率、相同前端配置下，分别对比原后端、低负载后端、暂时排除回环的后端；单独减少第二个 RViz，以区分计算和渲染影响。
+4. 记录 CPU/调度负载、前端收到的 IMU 时间戳间隔、处理延迟与 bag 原始消息，验证是否存在接收缺失。不要只依据话题频率正常就排除丢消息。
+5. 后端 ICP 与历史子地图问题单独处理，避免把错误回环与前端数据接收问题混为一谈。

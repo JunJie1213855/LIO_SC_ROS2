@@ -30,6 +30,7 @@ double imu_meas_acc_cov, imu_meas_omg_cov;
 int lidar_type, pcd_save_interval;
 std::vector<double> gravity_init, gravity;
 bool runtime_pos_log, pcd_save_en, path_en, extrinsic_est_en = true;
+bool runtime_eig_log = false;
 bool scan_pub_en, scan_body_pub_en, tf_send_en;
 shared_ptr<Preprocess> p_pre;
 shared_ptr<ImuProcess> p_imu;
@@ -47,7 +48,7 @@ bool cut_frame_init = false;      // true;
 
 MeasureGroup Measures;
 
-ofstream fout_out, fout_imu_pbp;
+ofstream fout_out, fout_imu_pbp, fout_eig;
 
 void readParameters(std::shared_ptr<rclcpp::Node> &nh)
 {
@@ -215,6 +216,9 @@ void readParameters(std::shared_ptr<rclcpp::Node> &nh)
     nh->declare_parameter<bool>("runtime_pos_log_enable", false);
     nh->get_parameter("runtime_pos_log_enable", runtime_pos_log);
 
+    nh->declare_parameter<bool>("runtime_eig_log_enable", false);
+    nh->get_parameter("runtime_eig_log_enable", runtime_eig_log);
+
     nh->declare_parameter<bool>("pcd_save.pcd_save_en", false);
     nh->get_parameter("pcd_save.pcd_save_en", pcd_save_en);
 
@@ -294,6 +298,9 @@ void open_file()
 {
   fout_out.open(DEBUG_FILE_DIR("mat_out.txt"), ios::out);
   fout_imu_pbp.open(DEBUG_FILE_DIR("imu_pbp.txt"), ios::out);
+  fout_eig.open(DEBUG_FILE_DIR("eig_log.txt"), ios::out);
+  if (fout_eig)
+    fout_eig << "# time  t0 t1 t2  r0 r1 r2  f0 f1 f2 f3 f4 f5  (translation/rotation blocks & full 6x6 H^T H eigenvalues, each ascending)  effct_feat_num\n";
   if (fout_out && fout_imu_pbp)
     std::cout << "====== " << ROOT_DIR << " file opened" <<" ======"<< '\n';
   else

@@ -16,6 +16,7 @@
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
 
 #include <pcl/point_cloud.h>
@@ -98,6 +99,7 @@ private:
     std::string sub_lidar_topic_, sub_odom_topic_, sub_gps_topic_;
     std::string pub_odom_topic_, pub_repub_odom_topic_, pub_path_topic_;
     std::string pub_map_topic_, pub_loop_scan_topic_, pub_loop_submap_topic_;
+    std::string pub_loop_edges_topic_;
 
     // ----------------------------------------------------------------------
     // state
@@ -142,6 +144,9 @@ private:
 
     pcl::VoxelGrid<PointType> down_size_filter_icp_;
     std::mutex mtx_posegraph_;
+    // Pending pairs use mtx_posegraph_; optimized pairs use mtx_kf_.
+    std::vector<std::pair<int, int>> pending_loop_edges_;
+    std::vector<std::pair<int, int>> optimized_loop_edges_;
     std::mutex mtx_recent_pose_;
 
     pcl::PointCloud<PointType>::Ptr laser_cloud_map_pgo_ = pcl::PointCloud<PointType>::Ptr(new pcl::PointCloud<PointType>());
@@ -157,6 +162,7 @@ private:
     std::shared_ptr<rclcpp::Publisher<sensor_msgs::msg::PointCloud2>> pub_map_aft_pgo_, pub_loop_scan_local_, pub_loop_submap_local_;
     std::shared_ptr<rclcpp::Publisher<nav_msgs::msg::Odometry>> pub_odom_aft_pgo_, pub_odom_repub_verifier_;
     std::shared_ptr<rclcpp::Publisher<nav_msgs::msg::Path>> pub_path_aft_pgo_;
+    std::shared_ptr<rclcpp::Publisher<visualization_msgs::msg::MarkerArray>> pub_loop_edges_;
 
     std::shared_ptr<rclcpp::Subscription<sensor_msgs::msg::PointCloud2>> sub_laser_cloud_full_res_;
     std::shared_ptr<rclcpp::Subscription<nav_msgs::msg::Odometry>> sub_laser_odometry_;
@@ -198,6 +204,7 @@ private:
     void performSCLoopClosure();
     void pubPath();
     void pubMap();
+    void pubLoopEdges();
 
     // ----------------------------------------------------------------------
     // processing threads
